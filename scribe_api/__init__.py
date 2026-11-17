@@ -17,7 +17,7 @@
 
 """Python client for the Sunet Scribe API.
 
-    from api import ScribeClient
+    from scribe_api import ScribeClient
 
     with ScribeClient.from_env() as scribe:
         scribe.check()                                  # GET /me

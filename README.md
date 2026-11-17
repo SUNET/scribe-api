@@ -6,7 +6,7 @@ transcription, wait for it, and fetch the result.
 Requires Python 3.10+ and [`requests`](https://pypi.org/project/requests/).
 
 ```python
-from api import ScribeClient
+from scribe_api import ScribeClient
 
 with ScribeClient.from_env() as scribe:
     scribe.check()                                         # GET /me
@@ -14,7 +14,13 @@ with ScribeClient.from_env() as scribe:
     print(scribe.result(job["uuid"], "srt"))
 ```
 
-Import it from the repository root, or put the root on `PYTHONPATH`.
+## Install
+
+```bash
+pip install git+https://github.com/SUNET/scribe-api   # or: pip install -e . in a checkout
+```
+
+Import it as `scribe_api`.
 
 ## Setup
 
@@ -36,7 +42,7 @@ Or pass things yourself. `token` is a bearer token string, a `Token`, or a
 function returning either.
 
 ```python
-from api import ScribeClient, get_token
+from scribe_api import ScribeClient, get_token
 
 scribe = ScribeClient(
     token=lambda: get_token(endpoint, client_id, client_secret),
@@ -130,7 +136,7 @@ if job["status"] == "completed":
 ## Things to get right
 
 **Language is a full name, not a code.** Use `"Swedish"`, `"English"`, … (see
-`api.LANGUAGES`). `start()` raises `ValueError` for anything else. This is
+`scribe_api.LANGUAGES`). `start()` raises `ValueError` for anything else. This is
 enforced because the worker cannot report an unknown language: it fails before
 it can mark the job failed, and the job then stays `in_progress` forever.
 
@@ -166,7 +172,7 @@ All inherit from `ScribeError`, which has a `.status` (HTTP status, if any).
 | `ScribeError` | Anything else, including network errors |
 
 ```python
-from api import ScribeClient, JobFailed, QuotaExceeded, ScribeError
+from scribe_api import ScribeClient, JobFailed, QuotaExceeded, ScribeError
 
 try:
     job = scribe.transcribe("meeting.mp3")
@@ -182,7 +188,7 @@ except ScribeError as e:
 
 ```python
 from pathlib import Path
-from api import ScribeClient, ScribeError
+from scribe_api import ScribeClient, ScribeError
 
 with ScribeClient.from_env() as scribe:
     for path in sorted(Path("recordings").glob("*.mp3")):
@@ -202,7 +208,7 @@ and submit again.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests/test_api_client.py
+uv run pytest
 ```
 
 They run against a pretend server, so no network or credentials are needed.
