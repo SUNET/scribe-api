@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Transcribe a media file with the Sunet Scribe API, printing each step.
 
-Usage: python examples/transcribe.py meeting.mp3 [Language] [txt|srt]
+Usage: python examples/transcribe.py meeting.mp3 [Language|code] [txt|srt]
 
 Needs OIDC_TOKEN_ENDPOINT, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and
 SCRIBE_ENCRYPTION_PASSWORD in the environment.

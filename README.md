@@ -135,10 +135,14 @@ if job["status"] == "completed":
 
 ## Things to get right
 
-**Language is a full name, not a code.** Use `"Swedish"`, `"English"`, … (see
-`scribe.LANGUAGES`). `start()` raises `ValueError` for anything else. This is
-enforced because the worker cannot report an unknown language: it fails before
-it can mark the job failed, and the job then stays `in_progress` forever.
+**Language: a full name or an ISO 639-1 code.** Use `"Swedish"` or `"sv"`,
+`"English"` or `"en"`, … Case does not matter. See `scribe.LANGUAGES` for the
+names and `scribe.LANGUAGE_CODES` for the codes (`"nb"` and `"nn"` also mean
+Norwegian). The worker only understands the full names, so the client
+translates a code before sending it. `start()` raises `ValueError` for
+anything else. This is enforced because the worker cannot report an unknown
+language: it fails before it can mark the job failed, and the job then stays
+`in_progress` forever.
 
 **Output format.** `start()` takes `"TXT"` or `"SRT"`; `result()` takes `"txt"`
 or `"srt"`. The client converts the case either way, so use whichever you like.
@@ -210,7 +214,7 @@ Runnable scripts are in [`examples/`](examples/):
 
 ```bash
 python examples/transcribe.py meeting.mp3 English srt
-python examples/transcribe_batch.py recordings/ --language English --format srt
+python examples/transcribe_batch.py recordings/ --language en --format srt
 ```
 
 ## Stuck jobs

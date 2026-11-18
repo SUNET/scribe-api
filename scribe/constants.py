@@ -37,6 +37,47 @@ LANGUAGES = (
     "Icelandic",
 )
 
+# ISO 639-1 codes, accepted as shorthands. The worker only understands the full
+# names above, so the client translates before sending. Norwegian has no
+# ISO 639-1 code of its own for Bokmal/Nynorsk, so "nb" and "nn" map to it too.
+LANGUAGE_CODES = {
+    "sv": "Swedish",
+    "en": "English",
+    "no": "Norwegian",
+    "nb": "Norwegian",
+    "nn": "Norwegian",
+    "fi": "Finnish",
+    "da": "Danish",
+    "fr": "French",
+    "es": "Spanish",
+    "pt": "Portuguese",
+    "de": "German",
+    "it": "Italian",
+    "nl": "Dutch",
+    "ru": "Russian",
+    "uk": "Ukrainian",
+    "is": "Icelandic",
+}
+
+
+def resolve_language(language: str) -> str:
+    """The full language name for a full name or an ISO 639-1 code.
+
+    Case does not matter ("sv", "SV", "swedish" all give "Swedish").
+    Raises ``ValueError`` for anything the worker has no model for.
+    """
+    key = language.strip().lower()
+    if key in LANGUAGE_CODES:
+        return LANGUAGE_CODES[key]
+    for name in LANGUAGES:
+        if name.lower() == key:
+            return name
+    raise ValueError(
+        f"unknown language {language!r}; use one of {', '.join(LANGUAGES)} "
+        f"or an ISO 639-1 code ({', '.join(LANGUAGE_CODES)})"
+    )
+
+
 # Starting a job takes these uppercase (as the UI sends them); reading a
 # result takes them lowercase. The client converts either way.
 OUTPUT_FORMATS = ("TXT", "SRT")

@@ -27,7 +27,7 @@ from typing import Any
 import requests
 
 from .auth import Token, get_token
-from .constants import DEFAULT_API_URL, FINISHED, LANGUAGES, OUTPUT_FORMATS
+from .constants import DEFAULT_API_URL, FINISHED, OUTPUT_FORMATS, resolve_language
 from .throttle import Throttle
 from .errors import (
     AuthError,
@@ -325,9 +325,12 @@ class ScribeClient:
         speakers: int = 0,
         output_format: str = "TXT",
     ) -> dict:
-        """Queue an uploaded job for transcription (status "pending")."""
-        if language not in LANGUAGES:
-            raise ValueError(f"language must be one of {', '.join(LANGUAGES)}")
+        """Queue an uploaded job for transcription (status "pending").
+
+        ``language`` is a full name ("Swedish") or an ISO 639-1 code ("sv");
+        the worker only knows the full names, so a code is translated here.
+        """
+        language = resolve_language(language)
         output_format = output_format.upper()
         if output_format not in OUTPUT_FORMATS:
             raise ValueError(f"output_format must be one of {OUTPUT_FORMATS}")

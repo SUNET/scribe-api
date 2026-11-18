@@ -27,7 +27,14 @@
 
 from .auth import Token, fetch_token, get_token
 from .client import ScribeClient
-from .constants import DEFAULT_API_URL, FINISHED, LANGUAGES, OUTPUT_FORMATS
+from .constants import (
+    DEFAULT_API_URL,
+    FINISHED,
+    LANGUAGE_CODES,
+    LANGUAGES,
+    OUTPUT_FORMATS,
+    resolve_language,
+)
 from .errors import (
     AuthError,
     JobFailed,
@@ -44,6 +51,7 @@ __all__ = [
     "FINISHED",
     "JobFailed",
     "LANGUAGES",
+    "LANGUAGE_CODES",
     "NotFound",
     "OUTPUT_FORMATS",
     "QuotaExceeded",
@@ -54,4 +62,5 @@ __all__ = [
     "Token",
     "fetch_token",
     "get_token",
+    "resolve_language",
 ]

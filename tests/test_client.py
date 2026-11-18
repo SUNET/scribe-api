@@ -163,11 +163,37 @@ def test_static_token_is_never_refreshed():
     assert len(fake.calls) == 1
 
 
-def test_start_rejects_language_code_before_sending():
+def test_start_rejects_unknown_language_before_sending():
     client, fake = make({})
-    with pytest.raises(ValueError):
-        client.start("j1", language="sv")
+    for bad in ("xx", "Klingon", ""):
+        with pytest.raises(ValueError):
+            client.start("j1", language=bad)
     assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    "given, sent",
+    [
+        ("sv", "Swedish"),
+        ("SV", "Swedish"),
+        ("en", "English"),
+        ("nb", "Norwegian"),
+        ("swedish", "Swedish"),
+        ("Swedish", "Swedish"),
+    ],
+)
+def test_start_sends_the_full_language_name(given, sent):
+    client, fake = make(
+        {("PUT", "/transcriber/j1"): (200, {"result": {"status": "pending"}})}
+    )
+    client.start("j1", language=given)
+    assert fake.calls[0][2]["language"] == sent
+
+
+def test_every_language_has_an_iso_code():
+    from scribe import LANGUAGE_CODES, LANGUAGES
+
+    assert set(LANGUAGE_CODES.values()) == set(LANGUAGES)
 
 
 def test_start_uppercases_format_and_sends_password():

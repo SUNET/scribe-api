@@ -9,7 +9,7 @@ as soon as that job completes.
 Usage:
     python examples/transcribe_batch.py recordings/            # a folder
     python examples/transcribe_batch.py a.mp3 b.mp4 c.wav      # some files
-    python examples/transcribe_batch.py recordings/ --language English --format txt
+    python examples/transcribe_batch.py recordings/ --language en --format txt
 
 Needs OIDC_TOKEN_ENDPOINT, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and
 SCRIBE_ENCRYPTION_PASSWORD in the environment.
@@ -22,7 +22,7 @@ from pathlib import Path
 
 from scribe import (
     FINISHED,
-    LANGUAGES,
+    resolve_language,
     QuotaExceeded,
     ScribeClient,
     ScribeError,
@@ -36,6 +36,13 @@ MEDIA_SUFFIXES = {
 
 def log(message: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def language_arg(value: str) -> str:
+    try:
+        return resolve_language(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
 
 
 def collect(inputs: list[str]) -> list[Path]:
@@ -57,7 +64,12 @@ def collect(inputs: list[str]) -> list[Path]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("inputs", nargs="+", help="media files and/or folders")
-    parser.add_argument("--language", default="Swedish", choices=LANGUAGES)
+    parser.add_argument(
+        "--language",
+        default="Swedish",
+        type=language_arg,
+        help="full name or ISO 639-1 code, e.g. Swedish or sv",
+    )
     parser.add_argument("--format", default="srt", choices=["txt", "srt"])
     parser.add_argument("--poll", type=int, default=10, help="seconds between polls")
     parser.add_argument("--max-wait", type=int, default=7200, help="seconds, in total")
