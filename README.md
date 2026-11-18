@@ -199,16 +199,36 @@ with ScribeClient.from_env() as scribe:
             print(f"{path.name}: {e}")
 ```
 
+## More examples
+
+Runnable scripts are in [`examples/`](examples/):
+
+| Script | Does |
+|---|---|
+| [`transcribe.py`](examples/transcribe.py) | Transcribe one file, printing each step and the job status as it changes |
+| [`transcribe_batch.py`](examples/transcribe_batch.py) | Transcribe a folder or list of files: upload all, start all, then collect each result as it finishes |
+
+```bash
+python examples/transcribe.py meeting.mp3 English srt
+python examples/transcribe_batch.py recordings/ --language English --format srt
+```
+
 ## Stuck jobs
 
 A job that stays `in_progress` has usually been picked up by a worker that then
 died, or hit an unknown language (see above). Delete it with `delete(job_id)`
 and submit again.
 
-## Tests
+## Development
 
 ```bash
-uv run pytest
+uv sync          # create the venv and install the dev dependencies
+uv run pytest    # run the tests
+uv build         # build the sdist and wheel into dist/
 ```
 
-They run against a pretend server, so no network or credentials are needed.
+The tests run against a pretend server, so no network or credentials are
+needed.
+
+To release, bump `version` in `pyproject.toml`, tag it (`git tag v0.1.1`) and
+push the tag.
