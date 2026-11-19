@@ -25,7 +25,7 @@
         print(scribe.result(job["uuid"], "srt"))
 """
 
-from .auth import Token, fetch_token, get_token
+from .auth import Token, fetch_token, get_password_token, get_token
 from .client import ScribeClient
 from .constants import (
     DEFAULT_API_URL,
@@ -35,6 +35,7 @@ from .constants import (
     OUTPUT_FORMATS,
     resolve_language,
 )
+from .signin import login, logout
 from .errors import (
     AuthError,
     JobFailed,
@@ -61,6 +62,9 @@ __all__ = [
     "Throttle",
     "Token",
     "fetch_token",
+    "get_password_token",
     "get_token",
+    "login",
+    "logout",
     "resolve_language",
 ]

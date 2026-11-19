@@ -17,6 +17,11 @@
 
 DEFAULT_API_URL = "https://scribe.sunet.se/api/v1"
 
+# Where ``login`` signs users in, and the public client it uses (no secret).
+# Override with SCRIBE_OIDC_ISSUER and SCRIBE_OIDC_CLIENT_ID.
+DEFAULT_OIDC_ISSUER = "https://keycloak-1.transcribe.sunet.se/realms/transcriber"
+DEFAULT_OIDC_CLIENT_ID = "automations"
+
 # Full names the worker has a model for (scribe-ui settings.WHISPER_LANGUAGES).
 # A code such as "sv" makes the worker raise before it can report failure,
 # leaving the job in_progress forever.

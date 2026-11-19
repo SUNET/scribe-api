@@ -26,7 +26,8 @@ from typing import Any
 
 import requests
 
-from .auth import Token, get_token
+from .auth import Token, get_password_token, get_token
+from .signin import load_login, saved_login_token_source
 from .constants import DEFAULT_API_URL, FINISHED, OUTPUT_FORMATS, resolve_language
 from .throttle import Throttle
 from .errors import (
@@ -101,11 +102,29 @@ class ScribeClient:
         self.max_retries = max_retries
 
     @classmethod
+    def from_login(cls) -> "ScribeClient":
+        """Build a client from the login saved by ``python -m scribe login``.
+
+        Reads SCRIBE_API_URL and SCRIBE_ENCRYPTION_PASSWORD if set. Raises
+        ``AuthError`` if nobody has signed in.
+        """
+        return cls(
+            token=saved_login_token_source(),
+            base_url=os.environ.get("SCRIBE_API_URL", DEFAULT_API_URL),
+            encryption_password=os.environ.get("SCRIBE_ENCRYPTION_PASSWORD"),
+        )
+
+    @classmethod
     def from_env(cls) -> "ScribeClient":
         """Build a client from the environment.
 
-        Uses SCRIBE_JWT (a JWT from the web interface) if set. Otherwise
-        needs OIDC_TOKEN_ENDPOINT, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET.
+        Uses SCRIBE_JWT (a JWT from the web interface) if set. Else, if
+        OIDC_USERNAME or OIDC_PASSWORD is set, logs in as that user (password
+        grant; needs OIDC_TOKEN_ENDPOINT and OIDC_CLIENT_ID, and
+        OIDC_CLIENT_SECRET for a confidential client). Otherwise needs
+        OIDC_TOKEN_ENDPOINT, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET. If none
+        of the OIDC variables are set, falls back to the saved login (see
+        ``from_login``).
         Reads SCRIBE_API_URL and SCRIBE_ENCRYPTION_PASSWORD if set.
         """
         if os.environ.get("SCRIBE_JWT"):
@@ -115,13 +134,47 @@ class ScribeClient:
                 encryption_password=os.environ.get("SCRIBE_ENCRYPTION_PASSWORD"),
             )
 
+        if os.environ.get("OIDC_USERNAME") or os.environ.get("OIDC_PASSWORD"):
+            missing = [
+                k
+                for k in (
+                    "OIDC_TOKEN_ENDPOINT",
+                    "OIDC_CLIENT_ID",
+                    "OIDC_USERNAME",
+                    "OIDC_PASSWORD",
+                )
+                if k not in os.environ
+            ]
+            if missing:
+                raise AuthError(f"Not set: {', '.join(missing)}")
+            return cls(
+                token=lambda: get_password_token(
+                    os.environ["OIDC_TOKEN_ENDPOINT"],
+                    os.environ["OIDC_CLIENT_ID"],
+                    os.environ["OIDC_USERNAME"],
+                    os.environ["OIDC_PASSWORD"],
+                    os.environ.get("OIDC_CLIENT_SECRET"),
+                ),
+                base_url=os.environ.get("SCRIBE_API_URL", DEFAULT_API_URL),
+                encryption_password=os.environ.get("SCRIBE_ENCRYPTION_PASSWORD"),
+            )
+
+        oidc = ("OIDC_TOKEN_ENDPOINT", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET")
+        if not any(k in os.environ for k in oidc) and load_login() is not None:
+            return cls.from_login()
+
         missing = [
             k
-            for k in ("OIDC_TOKEN_ENDPOINT", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET")
+            for k in oidc
             if k not in os.environ
         ]
         if missing:
-            raise AuthError(f"Not set: {', '.join(missing)}")
+            hint = (
+                " (or sign in with `python -m scribe login`)"
+                if len(missing) == len(oidc)
+                else ""
+            )
+            raise AuthError(f"Not set: {', '.join(missing)}{hint}")
 
         return cls(
             token=lambda: get_token(

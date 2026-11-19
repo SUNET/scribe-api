@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass
 
 import requests
+from urllib.parse import urlsplit
 
 from .errors import AuthError
 
@@ -66,34 +67,106 @@ def _jwt_expiry(jwt: str) -> float | None:
     return time.monotonic() + (exp - time.time())
 
 
+def require_https(url: str) -> str:
+    """Return ``url`` if it is https (or localhost, for testing); else raise.
+
+    Passwords, secrets and tokens must not cross the network in plain text.
+    """
+    parts = urlsplit(url)
+    if parts.scheme == "https" or (
+        parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1", "::1")
+    ):
+        return url
+    raise AuthError(f"Refusing to send credentials over a non-https URL: {url}")
+
+
+def token_from_body(body: dict) -> Token:
+    """A ``Token`` from a token endpoint's JSON answer."""
+    expires_in = body.get("expires_in")
+    return Token(
+        access_token=body["access_token"],
+        expires_at=(
+            time.monotonic() + float(expires_in) if expires_in is not None else None
+        ),
+    )
+
+
+def http_error_message(response: requests.Response, token_endpoint: str) -> str:
+    """Status plus the provider's OAuth ``error`` and ``error_description``
+    (e.g. "Invalid client or Invalid client credentials"). Not the whole body,
+    which can echo the request."""
+    message = f"Could not get token from {token_endpoint}: HTTP {response.status_code}"
+    try:
+        body = response.json()
+        code, description = body.get("error"), body.get("error_description")
+    except (ValueError, AttributeError):
+        code = description = None
+    if code:
+        message += f" {code}"
+    if description:
+        message += f": {str(description)[:200]}"
+    return message
+
+
+def post_token(token_endpoint: str, data: dict[str, str], timeout: int) -> dict:
+    """POST a grant to the token endpoint and return the JSON answer."""
+    require_https(token_endpoint)
+    try:
+        response = requests.post(token_endpoint, data=data, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.HTTPError as e:
+        raise AuthError(http_error_message(e.response, token_endpoint)) from e
+    except (requests.RequestException, ValueError) as e:
+        # Not the response: its body can echo the request.
+        raise AuthError(f"Could not get token: {type(e).__name__}") from e
+
+
+def _request_token(token_endpoint: str, data: dict[str, str], timeout: int) -> Token:
+    """POST a grant to the token endpoint and return the token."""
+    try:
+        return token_from_body(post_token(token_endpoint, data, timeout))
+    except (KeyError, TypeError, ValueError) as e:
+        raise AuthError(f"Could not get token: {type(e).__name__}") from e
+
+
 def get_token(
     token_endpoint: str, client_id: str, client_secret: str, timeout: int = 10
 ) -> Token:
     """OIDC client-credentials grant. Returns the token with its expiry."""
-    try:
-        response = requests.post(
-            token_endpoint,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": client_id,
-                "client_secret": client_secret,
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        body = response.json()
-        expires_in = body.get("expires_in")
-        return Token(
-            access_token=body["access_token"],
-            expires_at=(
-                time.monotonic() + float(expires_in)
-                if expires_in is not None
-                else None
-            ),
-        )
-    except (requests.RequestException, KeyError, ValueError, TypeError) as e:
-        # Not the response: its body can echo the request.
-        raise AuthError(f"Could not get token: {type(e).__name__}") from e
+    return _request_token(
+        token_endpoint,
+        {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        timeout,
+    )
+
+
+def get_password_token(
+    token_endpoint: str,
+    client_id: str,
+    username: str,
+    password: str,
+    client_secret: str | None = None,
+    timeout: int = 10,
+) -> Token:
+    """OIDC password grant: log in as a user. Returns the token with its expiry.
+
+    ``client_id`` is the client the token is for (it needs "Direct access
+    grants" enabled); ``client_secret`` is only for a confidential client.
+    """
+    data = {
+        "grant_type": "password",
+        "client_id": client_id,
+        "username": username,
+        "password": password,
+    }
+    if client_secret:
+        data["client_secret"] = client_secret
+    return _request_token(token_endpoint, data, timeout)
 
 
 def fetch_token(

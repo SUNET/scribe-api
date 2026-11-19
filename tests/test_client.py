@@ -433,3 +433,183 @@ def test_from_env_uses_jwt(monkeypatch):
     jwt = _jwt(time.time() + 3600)
     monkeypatch.setenv("SCRIBE_JWT", jwt)
     assert ScribeClient.from_env()._bearer() == {"Authorization": f"Bearer {jwt}"}
+
+
+def test_token_error_names_status_and_reason(monkeypatch):
+    from scribe import get_token
+
+    def fake_post(url, **kwargs):
+        r = requests.Response()
+        r.status_code = 401
+        r._content = json.dumps(
+            {"error": "unauthorized_client", "error_description": "Invalid client"}
+        ).encode()
+        return r
+
+    monkeypatch.setattr("scribe.auth.requests.post", fake_post)
+    with pytest.raises(AuthError) as e:
+        get_token("https://kc/token", "id", "s3cret")
+    msg = str(e.value)
+    assert "HTTP 401 unauthorized_client: Invalid client" in msg
+    assert "https://kc/token" in msg and "s3cret" not in msg
+
+
+def test_password_grant_sends_user_and_no_empty_secret(monkeypatch):
+    from scribe import get_password_token
+
+    sent = {}
+
+    def fake_post(url, data, **kwargs):
+        sent.update(data)
+        r = requests.Response()
+        r.status_code = 200
+        r._content = json.dumps({"access_token": "a", "expires_in": 300}).encode()
+        return r
+
+    monkeypatch.setattr("scribe.auth.requests.post", fake_post)
+    token = get_password_token("https://kc/token", "scribe", "kalle", "pw")
+    assert token.access_token == "a" and token.expires_at is not None
+    assert sent == {
+        "grant_type": "password",
+        "client_id": "scribe",
+        "username": "kalle",
+        "password": "pw",
+    }
+
+
+def test_from_env_password_grant_needs_its_variables(monkeypatch):
+    for k in ("SCRIBE_JWT", "OIDC_CLIENT_SECRET", "OIDC_PASSWORD"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OIDC_USERNAME", "kalle")
+    monkeypatch.setenv("OIDC_TOKEN_ENDPOINT", "https://kc/token")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "scribe")
+    with pytest.raises(AuthError, match="OIDC_PASSWORD"):
+        ScribeClient.from_env()
+
+
+# -- device flow login -----------------------------------------------------
+
+from scribe import login  # noqa: E402
+
+
+def _resp(status, payload):
+    r = requests.Response()
+    r.status_code = status
+    r._content = json.dumps(payload).encode()
+    return r
+
+
+@pytest.fixture
+def login_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCRIBE_TOKEN_FILE", str(tmp_path / "token.json"))
+    monkeypatch.setattr("scribe.signin.time.sleep", lambda s: None)
+    for k in ("SCRIBE_JWT", "OIDC_USERNAME", "OIDC_PASSWORD", "OIDC_TOKEN_ENDPOINT",
+              "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    return tmp_path / "token.json"
+
+
+def test_device_login_polls_then_saves_only_refresh_token(login_env, monkeypatch):
+    from scribe.signin import load_login
+
+    answers = iter(
+        [
+            _resp(200, {"device_code": "dc", "user_code": "ABCD", "interval": 1,
+                        "verification_uri": "https://kc/device", "expires_in": 600}),
+            _resp(400, {"error": "authorization_pending"}),
+            _resp(400, {"error": "slow_down"}),
+            _resp(200, {"access_token": "ACCESS-TOKEN-VALUE", "refresh_token": "rt"}),
+        ]
+    )
+    monkeypatch.setattr("scribe.signin.requests.post", lambda *a, **k: next(answers))
+    shown = []
+    login(prompt=lambda url, code: shown.append((url, code)))
+
+    assert shown == [("https://kc/device", "ABCD")]
+    saved = load_login()
+    assert saved["refresh_token"] == "rt"
+    assert "ACCESS-TOKEN-VALUE" not in login_env.read_text()
+    assert oct(login_env.stat().st_mode & 0o777) == "0o600"
+
+
+def test_device_login_denied(login_env, monkeypatch):
+    answers = iter(
+        [
+            _resp(200, {"device_code": "dc", "user_code": "A", "interval": 1,
+                        "verification_uri": "https://kc/d", "expires_in": 600}),
+            _resp(400, {"error": "access_denied"}),
+        ]
+    )
+    monkeypatch.setattr("scribe.signin.requests.post", lambda *a, **k: next(answers))
+    with pytest.raises(AuthError, match="denied"):
+        login(prompt=lambda *a: None)
+
+
+def test_from_login_refreshes_and_keeps_rotated_refresh_token(login_env, monkeypatch):
+    from scribe.signin import load_login, save_login
+
+    save_login("https://kc/realms/r", "scribe-api", "rt1")
+    sent = {}
+
+    def fake_post(url, data, **kwargs):
+        sent.update(data, url=url)
+        return _resp(200, {"access_token": "at", "expires_in": 300, "refresh_token": "rt2"})
+
+    monkeypatch.setattr("scribe.auth.requests.post", fake_post)
+    client = ScribeClient.from_login()
+    assert client._bearer() == {"Authorization": "Bearer at"}
+    assert sent["grant_type"] == "refresh_token" and sent["refresh_token"] == "rt1"
+    assert sent["url"] == "https://kc/realms/r/protocol/openid-connect/token"
+    assert load_login()["refresh_token"] == "rt2"
+
+
+def test_expired_login_says_to_sign_in_again(login_env, monkeypatch):
+    from scribe.signin import save_login
+
+    save_login("https://kc/realms/r", "scribe-api", "old")
+    monkeypatch.setattr(
+        "scribe.auth.requests.post", lambda *a, **k: _resp(400, {"error": "invalid_grant"})
+    )
+    with pytest.raises(AuthError, match="python -m scribe login"):
+        ScribeClient.from_login()._bearer()
+
+
+def test_from_env_falls_back_to_saved_login_and_hints(login_env):
+    from scribe.signin import logout, save_login
+
+    with pytest.raises(AuthError, match="scribe login"):
+        ScribeClient.from_env()
+    save_login("https://kc/realms/r", "scribe-api", "rt")
+    assert ScribeClient.from_env()._token_source is not None
+    assert logout() and not logout()
+
+
+def test_http_token_endpoint_is_refused(monkeypatch):
+    from scribe import get_token
+
+    called = []
+    monkeypatch.setattr("scribe.auth.requests.post", lambda *a, **k: called.append(1))
+    with pytest.raises(AuthError, match="non-https"):
+        get_token("http://kc.example.org/token", "id", "s")
+    assert not called
+    from scribe.auth import require_https
+
+    assert require_https("http://localhost:8080/token")
+    assert require_https("https://kc/token")
+
+
+def test_http_issuer_is_refused_for_login(login_env, monkeypatch):
+    called = []
+    monkeypatch.setattr("scribe.signin.requests.post", lambda *a, **k: called.append(1))
+    with pytest.raises(AuthError, match="non-https"):
+        login(issuer="http://kc.example.org/realms/r", prompt=lambda *a: None)
+    assert not called
+
+
+def test_world_readable_token_file_warns(login_env):
+    from scribe.signin import load_login, save_login
+
+    save_login("https://kc/realms/r", "automations", "rt")
+    login_env.chmod(0o644)
+    with pytest.warns(UserWarning, match="chmod 600"):
+        assert load_login()["refresh_token"] == "rt"

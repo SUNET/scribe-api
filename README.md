@@ -24,19 +24,95 @@ Import it as `scribe`.
 
 ## Setup
 
-The client authenticates with an OIDC client-credentials grant. Set:
+There are four ways to authenticate. `from_env()` picks the first that applies:
+
+| # | Way | Set | Best for |
+|---|---|---|---|
+| 1 | A JWT from the web interface | `SCRIBE_JWT` | Quick tests (it lasts minutes and cannot be renewed) |
+| 2 | A Keycloak user and password | `OIDC_USERNAME`, `OIDC_PASSWORD`, plus `OIDC_TOKEN_ENDPOINT`, `OIDC_CLIENT_ID` | Local accounts without MFA |
+| 3 | OIDC client credentials | `OIDC_TOKEN_ENDPOINT`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Unattended automation |
+| 4 | Sign in once in a browser | nothing; run `python -m scribe login` | People |
+
+Ways 3 and 4 renew the token by themselves. Way 4 is used by `from_env()` only
+when none of the `OIDC_*` variables are set.
 
 | Variable | Needed | Meaning |
 |---|---|---|
-| `OIDC_TOKEN_ENDPOINT` | yes | Token endpoint of the OIDC provider |
-| `OIDC_CLIENT_ID` | yes | Client id |
-| `OIDC_CLIENT_SECRET` | yes | Client secret |
+| `SCRIBE_JWT` | way 1 | A JWT from the web interface |
+| `OIDC_TOKEN_ENDPOINT` | ways 2, 3 | Token endpoint of the OIDC provider |
+| `OIDC_CLIENT_ID` | ways 2, 3 | Client id |
+| `OIDC_CLIENT_SECRET` | way 3 | Client secret (way 2 only for a confidential client) |
+| `OIDC_USERNAME`, `OIDC_PASSWORD` | way 2 | The Keycloak user |
+| `SCRIBE_OIDC_ISSUER` | no | Realm used by `login`. Defaults to the Sunet Scribe realm |
+| `SCRIBE_OIDC_CLIENT_ID` | no | Client used by `login`. Defaults to `automations` |
+| `SCRIBE_TOKEN_FILE` | no | Where `login` saves its login. Defaults to `~/.config/scribe/token.json` |
 | `SCRIBE_API_URL` | no | Defaults to `https://scribe.sunet.se/api/v1` |
 | `SCRIBE_ENCRYPTION_PASSWORD` | for results | The user's encryption password |
+
+Commands for way 4:
+
+| Command | Does |
+|---|---|
+| `python -m scribe login` | Shows a URL and a code; sign in in the browser |
+| `python -m scribe whoami` | Prints the username you are signed in as |
+| `python -m scribe logout` | Deletes the saved login |
+
+With `uv`: `uv run python -m scribe login`.
+
+The same from code:
+
+```python
+from scribe import AuthError, ScribeClient, login
+
+# Way 4: sign in once (shows a URL and code, waits for the browser), then reuse it
+try:
+    scribe = ScribeClient.from_login()
+except AuthError:                        # not signed in, or the login expired
+    login(prompt=lambda url, code: print(f"Open {url} and check the code: {code}"))
+    scribe = ScribeClient.from_login()
+
+with scribe:
+    print(scribe.me().get("username"))
+
+# Way 1: a JWT you copied from the web interface (lasts minutes, no renewal)
+scribe = ScribeClient(jwt)
+
+# Way 2: a Keycloak user
+from scribe import get_password_token
+scribe = ScribeClient(
+    lambda: get_password_token(endpoint, "automations", "kalle", password)
+)
+```
+
+`login()` with no arguments prints the URL and code itself and raises
+`AuthError` if the user says no or the code expires. `logout()` deletes the
+saved login.
 
 ```python
 scribe = ScribeClient.from_env()
 ```
+
+**Or sign in as yourself (no client id or secret).** Run
+`python -m scribe login`, open the URL it prints, check the code and sign in as
+usual (SSO and MFA work). Then `ScribeClient.from_login()` works, and so does
+`from_env()` when no `OIDC_*` variables are set. The API token is renewed from
+a saved refresh token, kept in `~/.config/scribe/token.json` (mode 0600;
+`SCRIBE_TOKEN_FILE` moves it). `python -m scribe whoami` checks it and
+`python -m scribe logout` deletes it.
+**Check that the code on the Keycloak page matches the one in your terminal
+before approving.** Otherwise someone could send you a link and get a login for
+your account. The saved refresh token is a credential: keep the file private
+(the client warns if others can read it), and use `logout` on shared machines.
+Credentials are only sent to `https://` token endpoints (plain `http://` is
+allowed for localhost only). `SCRIBE_OIDC_ISSUER` and `SCRIBE_OIDC_CLIENT_ID`
+override the defaults. This needs the OAuth 2.0 Device Authorization Grant
+enabled on the public client `automations`.
+
+**Or log in as a Keycloak user.** Set `OIDC_USERNAME` and `OIDC_PASSWORD`
+(plus `OIDC_TOKEN_ENDPOINT` and `OIDC_CLIENT_ID`; `OIDC_CLIENT_SECRET` only if
+the client is confidential). This is the OIDC password grant, so the client
+needs "Direct access grants" enabled, and it only works for users with a local
+Keycloak password, without MFA. `get_password_token()` does the same from code.
 
 **Or use a JWT from the web interface.** This is an addition to the OIDC
 setup above, which works as before. If `SCRIBE_JWT` is set, `from_env()` uses
@@ -169,6 +245,28 @@ setting a new one replaces the key pair, making everything encrypted with the
 old one unreadable. The client refuses if one is already set.
 
 **Quota.** `start()` raises `QuotaExceeded` when your quota is used up.
+
+## Security
+
+- **Compare the code** on the Keycloak page with the one in your terminal
+  before approving a `login`. Otherwise someone could send you a link and get a
+  login for your account.
+- **The saved login is a credential.** The refresh token in
+  `~/.config/scribe/token.json` is saved with mode 0600, and the client warns
+  if other users can read it (not checked on Windows). Run `logout` on shared
+  machines. The access token itself is never saved.
+- **Token endpoints must be `https://`.** The client refuses to send a
+  password, secret or refresh token to anything else (`http://localhost` is
+  allowed for testing).
+- **Known gap: the API URL is not checked.** `ScribeClient(base_url=...)` and
+  `SCRIBE_API_URL` accept `http://`, which would send the bearer token in plain
+  text. Use `https://`, which is the default.
+- **Hidden fields.** Output meant for people (`whoami`, `check_login.py`)
+  leaves out any field whose name contains `key`, `secret`, `password`,
+  `token`, `salt` or `hash`, because `/me` includes your encryption keys. Your
+  own code still gets everything from `me()`, so do not print it.
+- **Keep secrets out of the shell history and git:** the client secret, user
+  password and any private key.
 
 ## Errors
 
