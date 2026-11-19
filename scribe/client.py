@@ -42,7 +42,8 @@ from .errors import (
 class ScribeClient:
     """Thin wrapper around the Scribe API.
 
-    ``token`` is a bearer token string, a ``Token``, or a zero-argument
+    ``token`` is a bearer token string (such as a JWT from the web
+    interface), a ``Token``, or a zero-argument
     callable returning either. A callable is called to get the first token and
     again only once that token has expired (``Token.expires_at``, from the
     provider's ``expires_in``), so a long ``wait()`` outlives it without
@@ -91,7 +92,7 @@ class ScribeClient:
         self._token: Token | None = (
             None
             if callable(token)
-            else token if isinstance(token, Token) else Token(token)
+            else token if isinstance(token, Token) else Token.from_jwt(token)
         )
         self._session = requests.Session()
         self._throttle = (
@@ -103,9 +104,17 @@ class ScribeClient:
     def from_env(cls) -> "ScribeClient":
         """Build a client from the environment.
 
-        Needs OIDC_TOKEN_ENDPOINT, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET.
+        Uses SCRIBE_JWT (a JWT from the web interface) if set. Otherwise
+        needs OIDC_TOKEN_ENDPOINT, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET.
         Reads SCRIBE_API_URL and SCRIBE_ENCRYPTION_PASSWORD if set.
         """
+        if os.environ.get("SCRIBE_JWT"):
+            return cls(
+                token=os.environ["SCRIBE_JWT"],
+                base_url=os.environ.get("SCRIBE_API_URL", DEFAULT_API_URL),
+                encryption_password=os.environ.get("SCRIBE_ENCRYPTION_PASSWORD"),
+            )
+
         missing = [
             k
             for k in ("OIDC_TOKEN_ENDPOINT", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET")
@@ -137,7 +146,9 @@ class ScribeClient:
 
     def _refresh_token(self) -> None:
         fetched = self._token_source()
-        self._token = fetched if isinstance(fetched, Token) else Token(fetched)
+        self._token = (
+            fetched if isinstance(fetched, Token) else Token.from_jwt(fetched)
+        )
 
     def _bearer(self, force: bool = False) -> dict[str, str]:
         """Authorization header, fetching a token if there is none, it has
@@ -146,6 +157,8 @@ class ScribeClient:
             force or self._token is None or self._token.expired(self.TOKEN_LEEWAY)
         ):
             self._refresh_token()
+        elif self._token_source is None and self._token.expired():
+            raise AuthError("The JWT has expired; get a new one")
         return {"Authorization": f"Bearer {self._token.access_token}"}
 
     def _retry_on_401(self) -> bool:

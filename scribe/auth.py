@@ -17,6 +17,8 @@
 
 """Getting a bearer token from the OIDC provider."""
 
+import base64
+import json
 import time
 from dataclasses import dataclass
 
@@ -41,6 +43,27 @@ class Token:
         return self.expires_at is not None and time.monotonic() >= (
             self.expires_at - leeway
         )
+
+    @classmethod
+    def from_jwt(cls, jwt: str) -> "Token":
+        """Wrap a JWT (e.g. one copied from the web interface).
+
+        The expiry is read from the ``exp`` claim. The signature is *not*
+        checked: that is the API's job, this only knows when to stop using
+        it. A string that is not a JWT, or has no ``exp``, gets no expiry.
+        """
+        return cls(jwt, _jwt_expiry(jwt))
+
+
+def _jwt_expiry(jwt: str) -> float | None:
+    """``exp`` of a JWT as a ``time.monotonic()`` value, or None."""
+    try:
+        payload = jwt.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        exp = float(claims["exp"])
+    except (IndexError, KeyError, ValueError, TypeError, AttributeError):
+        return None
+    return time.monotonic() + (exp - time.time())
 
 
 def get_token(

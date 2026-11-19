@@ -38,6 +38,14 @@ The client authenticates with an OIDC client-credentials grant. Set:
 scribe = ScribeClient.from_env()
 ```
 
+**Or use a JWT from the web interface.** This is an addition to the OIDC
+setup above, which works as before. If `SCRIBE_JWT` is set, `from_env()` uses
+it and the OIDC variables are not needed; if not, it uses OIDC. Or pass it
+directly: `ScribeClient(jwt)`. The `exp` claim is read (signature unchecked,
+the API does that), so an expired JWT raises `AuthError("The JWT has expired")`
+before any request. A JWT cannot be refreshed; get a new one from the web
+interface.
+
 Or pass things yourself. `token` is a bearer token string, a `Token`, or a
 function returning either.
 

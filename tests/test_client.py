@@ -1,6 +1,8 @@
 """Tests for the api/ client, against a pretend Scribe on a requests adapter."""
 
+import base64
 import json
+import time
 
 import pytest
 import requests
@@ -404,3 +406,30 @@ def test_wait_never_polls_faster_than_the_minimum(monkeypatch):
     )
     client.wait("j1", poll_seconds=0)
     assert slept == [ScribeClient.MIN_POLL_SECONDS]
+
+
+def _jwt(exp):
+    enc = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+    return f"{enc({'alg': 'none'})}.{enc({'exp': exp})}.sig"
+
+
+def test_jwt_expiry_is_read():
+    t = Token.from_jwt(_jwt(time.time() + 3600))
+    assert not t.expired() and t.expires_at is not None
+    assert Token.from_jwt("not-a-jwt").expires_at is None
+
+
+def test_expired_jwt_raises_before_request():
+    client, fake = make({("GET", "/me"): (200, {})})
+    client._token = Token.from_jwt(_jwt(time.time() - 10))
+    with pytest.raises(AuthError):
+        client.check()
+    assert not fake.calls
+
+
+def test_from_env_uses_jwt(monkeypatch):
+    for k in ("OIDC_TOKEN_ENDPOINT", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    jwt = _jwt(time.time() + 3600)
+    monkeypatch.setenv("SCRIBE_JWT", jwt)
+    assert ScribeClient.from_env()._bearer() == {"Authorization": f"Bearer {jwt}"}
