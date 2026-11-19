@@ -192,6 +192,60 @@ def test_start_sends_the_full_language_name(given, sent):
     assert fake.calls[0][2]["language"] == sent
 
 
+@pytest.mark.parametrize(
+    "given, sent",
+    [
+        ("sv", "Swedish (verbatim)"),
+        ("English", "English (verbatim)"),
+        ("nb", "Norwegian (verbatim)"),
+    ],
+)
+def test_start_verbatim_sends_the_verbatim_key(given, sent):
+    client, fake = make(
+        {("PUT", "/transcriber/j1"): (200, {"result": {"status": "pending"}})}
+    )
+    client.start("j1", language=given, verbatim=True)
+    assert fake.calls[0][2]["language"] == sent
+
+
+def test_start_verbatim_rejects_language_without_model():
+    client, fake = make({})
+    with pytest.raises(ValueError):
+        client.start("j1", language="Ukrainian", verbatim=True)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize(
+    "given, sent",
+    [
+        ("Swedish (verbatim)", "Swedish (verbatim)"),
+        ("swedish (VERBATIM)", "Swedish (verbatim)"),
+        ("Norwegian (verbatim)", "Norwegian (verbatim)"),
+    ],
+)
+def test_worker_verbatim_keys_pass_unchanged(given, sent):
+    from scribe import resolve_language
+
+    assert resolve_language(given) == sent
+
+
+def test_worker_verbatim_key_for_language_without_model_is_rejected():
+    from scribe import resolve_language
+
+    for bad in ("Ukrainian (verbatim)", "Klingon (verbatim)"):
+        with pytest.raises(ValueError):
+            resolve_language(bad)
+
+
+def test_northern_sami_by_code_and_name():
+    from scribe import resolve_language
+
+    assert resolve_language("se") == "Northern Sámi (Experimental)"
+    assert resolve_language("northern sámi (experimental)") == (
+        "Northern Sámi (Experimental)"
+    )
+
+
 def test_every_language_has_an_iso_code():
     from scribe import LANGUAGE_CODES, LANGUAGES
 

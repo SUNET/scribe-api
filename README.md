@@ -214,7 +214,7 @@ if job["status"] == "completed":
 |---|---|
 | `me()` / `check()` | `GET /me`. Returns the user; raises if the token is refused |
 | `upload(path)` | Upload a media file. Returns the job UUID |
-| `start(job_id, language, speakers, output_format)` | Queue an uploaded job |
+| `start(job_id, language, speakers, output_format, verbatim)` | Queue an uploaded job |
 | `wait(job_id, poll_seconds, max_wait_seconds)` | Poll until finished. Returns the job. `TimeoutError` if it takes too long |
 | `transcribe(path, ...)` | Upload, start, wait. Raises `JobFailed` on failure |
 | `job(job_id)` / `jobs()` | One job / all your jobs |
@@ -234,6 +234,13 @@ translates a code before sending it. `start()` raises `ValueError` for
 anything else. This is enforced because the worker cannot report an unknown
 language: it fails before it can mark the job failed, and the job then stays
 `in_progress` forever.
+
+**Verbatim.** Pass `verbatim=True` to `start()` or `transcribe()` for the
+strict model that keeps filler words, repetitions and unfinished sentences.
+It exists for the languages in `scribe.VERBATIM_LANGUAGES` (Swedish, English,
+Norwegian); any other language raises `ValueError`. The worker's own key,
+e.g. `language="Swedish (verbatim)"`, works too. `"Northern Sámi
+(Experimental)"` (code `"se"`) is in `scribe.LANGUAGES`.
 
 **Output format.** `start()` takes `"TXT"` or `"SRT"`; `result()` takes `"txt"`
 or `"srt"`. The client converts the case either way, so use whichever you like.

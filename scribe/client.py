@@ -390,13 +390,16 @@ class ScribeClient:
         language: str = "Swedish",
         speakers: int = 0,
         output_format: str = "TXT",
+        verbatim: bool = False,
     ) -> dict:
         """Queue an uploaded job for transcription (status "pending").
 
         ``language`` is a full name ("Swedish") or an ISO 639-1 code ("sv");
         the worker only knows the full names, so a code is translated here.
+        ``verbatim=True`` selects the strict model that keeps filler words and
+        repetitions; see ``VERBATIM_LANGUAGES``.
         """
-        language = resolve_language(language)
+        language = resolve_language(language, verbatim)
         output_format = output_format.upper()
         if output_format not in OUTPUT_FORMATS:
             raise ValueError(f"output_format must be one of {OUTPUT_FORMATS}")
@@ -474,6 +477,7 @@ class ScribeClient:
         output_format: str = "TXT",
         poll_seconds: int = 10,
         max_wait_seconds: int = 3600,
+        verbatim: bool = False,
     ) -> dict:
         """Upload, start and wait. Returns the finished job.
 
@@ -481,7 +485,7 @@ class ScribeClient:
         ``result()``.
         """
         job_id = self.upload(path)
-        self.start(job_id, language, speakers, output_format)
+        self.start(job_id, language, speakers, output_format, verbatim)
         job = self.wait(job_id, poll_seconds, max_wait_seconds)
         if job["status"] != "completed":
             raise JobFailed(f"Job {job_id} failed: {job.get('error')}", job)

@@ -33,6 +33,7 @@ from .constants import (
     LANGUAGE_CODES,
     LANGUAGES,
     OUTPUT_FORMATS,
+    VERBATIM_LANGUAGES,
     resolve_language,
 )
 from .signin import login, logout
@@ -61,6 +62,7 @@ __all__ = [
     "ScribeError",
     "Throttle",
     "Token",
+    "VERBATIM_LANGUAGES",
     "fetch_token",
     "get_password_token",
     "get_token",
