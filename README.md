@@ -24,116 +24,123 @@ Import it as `scribe`.
 
 ## Setup
 
-There are four ways to authenticate. `from_env()` picks the first that applies:
+There are four ways to authenticate. `ScribeClient.from_env()` picks the first
+that applies, in this order:
 
-| # | Way | Set | Best for |
-|---|---|---|---|
-| 1 | A JWT from the web interface | `SCRIBE_JWT` | Quick tests (it lasts minutes and cannot be renewed) |
-| 2 | A Keycloak user and password | `OIDC_USERNAME`, `OIDC_PASSWORD`, plus `OIDC_TOKEN_ENDPOINT`, `OIDC_CLIENT_ID` | Local accounts without MFA |
-| 3 | OIDC client credentials | `OIDC_TOKEN_ENDPOINT`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Unattended automation |
-| 4 | Sign in once in a browser | nothing; run `python -m scribe login` | People |
-
-Ways 3 and 4 renew the token by themselves. Way 4 is used by `from_env()` only
-when none of the `OIDC_*` variables are set.
-
-| Variable | Needed | Meaning |
+| # | Way | Best for |
 |---|---|---|
-| `SCRIBE_JWT` | way 1 | A JWT from the web interface |
-| `OIDC_TOKEN_ENDPOINT` | ways 2, 3 | Token endpoint of the OIDC provider |
-| `OIDC_CLIENT_ID` | ways 2, 3 | Client id |
-| `OIDC_CLIENT_SECRET` | way 3 | Client secret (way 2 only for a confidential client) |
-| `OIDC_USERNAME`, `OIDC_PASSWORD` | way 2 | The Keycloak user |
-| `SCRIBE_OIDC_ISSUER` | no | Realm used by `login`. Defaults to the Sunet Scribe realm |
-| `SCRIBE_OIDC_CLIENT_ID` | no | Client used by `login`. Defaults to `automations` |
-| `SCRIBE_TOKEN_FILE` | no | Where `login` saves its login. Defaults to `~/.config/scribe/token.json` |
-| `SCRIBE_API_URL` | no | Defaults to `https://scribe.sunet.se/api/v1` |
-| `SCRIBE_ENCRYPTION_PASSWORD` | for results | The user's encryption password |
+| 1 | [A JWT from the web interface](#1-a-jwt-from-the-web-interface) | Quick tests (lasts minutes, no renewal) |
+| 2 | [A Keycloak user and password](#2-a-keycloak-user-and-password) | Local accounts without MFA |
+| 3 | [OIDC client credentials](#3-oidc-client-credentials) | Unattended automation |
+| 4 | [Sign in once in a browser](#4-sign-in-once-in-a-browser) | People |
 
-Commands for way 4:
+Way 4 is used only when none of the `OIDC_*` variables are set. Ways 3 and 4
+renew the token by themselves.
 
-| Command | Does |
+Settings that apply to every way:
+
+| Variable | Meaning |
 |---|---|
-| `python -m scribe login` | Shows a URL and a code; sign in in the browser |
-| `python -m scribe whoami` | Prints the username you are signed in as |
-| `python -m scribe logout` | Deletes the saved login |
+| `SCRIBE_API_URL` | Defaults to `https://scribe.sunet.se/api/v1` |
+| `SCRIBE_ENCRYPTION_PASSWORD` | The user's encryption password, needed to read results |
 
-With `uv`: `uv run python -m scribe login`.
+### 1. A JWT from the web interface
 
-The same from code:
+Set `SCRIBE_JWT`, or pass the JWT directly. The `exp` claim is read (the
+signature is not checked, the API does that), so an expired JWT raises
+`AuthError("The JWT has expired")` before any request. A JWT cannot be
+refreshed; get a new one from the web interface.
 
 ```python
-from scribe import AuthError, ScribeClient, login
+scribe = ScribeClient.from_env()     # with SCRIBE_JWT set
+scribe = ScribeClient(jwt)           # or pass it
+```
 
-# Way 4: sign in once (shows a URL and code, waits for the browser), then reuse it
-try:
-    scribe = ScribeClient.from_login()
-except AuthError:                        # not signed in, or the login expired
-    login(prompt=lambda url, code: print(f"Open {url} and check the code: {code}"))
-    scribe = ScribeClient.from_login()
+### 2. A Keycloak user and password
 
-with scribe:
-    print(scribe.me().get("username"))
+Set `OIDC_TOKEN_ENDPOINT`, `OIDC_CLIENT_ID`, `OIDC_USERNAME` and
+`OIDC_PASSWORD` (`OIDC_CLIENT_SECRET` only if the client is confidential). This
+is the OIDC password grant, so the client needs "Direct access grants"
+enabled, and it only works for users with a local Keycloak password, without
+MFA.
 
-# Way 1: a JWT you copied from the web interface (lasts minutes, no renewal)
-scribe = ScribeClient(jwt)
+```python
+from scribe import ScribeClient, get_password_token
 
-# Way 2: a Keycloak user
-from scribe import get_password_token
+scribe = ScribeClient.from_env()     # with the variables above set
 scribe = ScribeClient(
-    lambda: get_password_token(endpoint, "automations", "kalle", password)
+    lambda: get_password_token(endpoint, client_id, "kalle", password)
 )
 ```
 
-`login()` with no arguments prints the URL and code itself and raises
-`AuthError` if the user says no or the code expires. `logout()` deletes the
-saved login.
+### 3. OIDC client credentials
 
-```python
-scribe = ScribeClient.from_env()
-```
-
-**Or sign in as yourself (no client id or secret).** Run
-`python -m scribe login`, open the URL it prints, check the code and sign in as
-usual (SSO and MFA work). Then `ScribeClient.from_login()` works, and so does
-`from_env()` when no `OIDC_*` variables are set. The API token is renewed from
-a saved refresh token, kept in `~/.config/scribe/token.json` (mode 0600;
-`SCRIBE_TOKEN_FILE` moves it). `python -m scribe whoami` checks it and
-`python -m scribe logout` deletes it.
-**Check that the code on the Keycloak page matches the one in your terminal
-before approving.** Otherwise someone could send you a link and get a login for
-your account. The saved refresh token is a credential: keep the file private
-(the client warns if others can read it), and use `logout` on shared machines.
-Credentials are only sent to `https://` token endpoints (plain `http://` is
-allowed for localhost only). `SCRIBE_OIDC_ISSUER` and `SCRIBE_OIDC_CLIENT_ID`
-override the defaults. This needs the OAuth 2.0 Device Authorization Grant
-enabled on the public client `automations`.
-
-**Or log in as a Keycloak user.** Set `OIDC_USERNAME` and `OIDC_PASSWORD`
-(plus `OIDC_TOKEN_ENDPOINT` and `OIDC_CLIENT_ID`; `OIDC_CLIENT_SECRET` only if
-the client is confidential). This is the OIDC password grant, so the client
-needs "Direct access grants" enabled, and it only works for users with a local
-Keycloak password, without MFA. `get_password_token()` does the same from code.
-
-**Or use a JWT from the web interface.** This is an addition to the OIDC
-setup above, which works as before. If `SCRIBE_JWT` is set, `from_env()` uses
-it and the OIDC variables are not needed; if not, it uses OIDC. Or pass it
-directly: `ScribeClient(jwt)`. The `exp` claim is read (signature unchecked,
-the API does that), so an expired JWT raises `AuthError("The JWT has expired")`
-before any request. A JWT cannot be refreshed; get a new one from the web
-interface.
-
-Or pass things yourself. `token` is a bearer token string, a `Token`, or a
-function returning either.
+Set `OIDC_TOKEN_ENDPOINT`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`. The
+client needs "Service accounts roles" enabled.
 
 ```python
 from scribe import ScribeClient, get_token
 
+scribe = ScribeClient.from_env()     # with the variables above set
 scribe = ScribeClient(
     token=lambda: get_token(endpoint, client_id, client_secret),
     base_url="https://scribe.sunet.se/api/v1",
     encryption_password="...",
 )
 ```
+
+`token` can be a bearer token string, a `Token`, or a function returning
+either.
+
+### 4. Sign in once in a browser
+
+No client id or secret needed. Run:
+
+| Command | Does |
+|---|---|
+| `python -m scribe login` | Shows a URL and a code; sign in in the browser (SSO and MFA work) |
+| `python -m scribe whoami` | Prints the username you are signed in as |
+| `python -m scribe logout` | Deletes the saved login |
+
+With `uv`: `uv run python -m scribe login`.
+
+**Check that the code on the Keycloak page matches the one in your terminal
+before approving.** Otherwise someone could send you a link and get a login for
+your account.
+
+```python
+from scribe import AuthError, ScribeClient, login
+
+try:
+    scribe = ScribeClient.from_login()   # also what from_env() does
+except AuthError:                        # not signed in, or the login expired
+    login(prompt=lambda url, code: print(f"Open {url} and check the code: {code}"))
+    scribe = ScribeClient.from_login()
+
+with scribe:
+    print(scribe.me().get("username"))
+```
+
+`login()` with no arguments prints the URL and code itself. It raises
+`AuthError` if the user says no or the code expires. `logout()` deletes the
+saved login.
+
+The API token is renewed from a saved refresh token, kept in
+`~/.config/scribe/token.json` (mode 0600). It is a credential: the client warns
+if others can read the file, so keep it private and run `logout` on shared
+machines. Credentials are only sent to `https://` token endpoints (plain
+`http://` is allowed for localhost only).
+
+| Variable | Meaning |
+|---|---|
+| `SCRIBE_OIDC_ISSUER` | Realm used by `login`. Defaults to the Sunet Scribe realm |
+| `SCRIBE_OIDC_CLIENT_ID` | Client used by `login`. Defaults to `automations` |
+| `SCRIBE_TOKEN_FILE` | Where the login is saved |
+
+This needs the OAuth 2.0 Device Authorization Grant enabled on the public
+client `automations`.
+
+### Token renewal
 
 **Tokens are fetched only when needed.** `get_token()` returns a `Token` with
 the expiry from the provider's `expires_in`. The client fetches the first token
