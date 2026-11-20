@@ -272,9 +272,9 @@ old one unreadable. The client refuses if one is already set.
 - **Token endpoints must be `https://`.** The client refuses to send a
   password, secret or refresh token to anything else (`http://localhost` is
   allowed for testing).
-- **Known gap: the API URL is not checked.** `ScribeClient(base_url=...)` and
-  `SCRIBE_API_URL` accept `http://`, which would send the bearer token in plain
-  text. Use `https://`, which is the default.
+- **The API URL must be `https://`.** `ScribeClient(base_url=...)` and
+  `SCRIBE_API_URL` raise `AuthError` for anything else, so the bearer token is
+  never sent in plain text (`http://localhost` is allowed for testing).
 - **Hidden fields.** Output meant for people (`whoami`, `check_login.py`)
   leaves out any field whose name contains `key`, `secret`, `password`,
   `token`, `salt` or `hash`, because `/me` includes your encryption keys. Your

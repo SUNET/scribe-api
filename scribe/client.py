@@ -26,7 +26,7 @@ from typing import Any
 
 import requests
 
-from .auth import Token, get_password_token, get_token
+from .auth import Token, get_password_token, get_token, require_https
 from .signin import load_login, saved_login_token_source
 from .constants import DEFAULT_API_URL, FINISHED, OUTPUT_FORMATS, resolve_language
 from .throttle import Throttle
@@ -87,7 +87,7 @@ class ScribeClient:
         burst: int | None = None,
         max_retries: int = 3,
     ):
-        self.base_url = base_url.rstrip("/")
+        self.base_url = require_https(base_url).rstrip("/")
         self.encryption_password = encryption_password
         self._token_source = token if callable(token) else None
         self._token: Token | None = (

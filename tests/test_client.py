@@ -55,9 +55,9 @@ class FakeScribe(BaseAdapter):
 
 
 def make(routes, **kwargs):
-    client = ScribeClient("tok", base_url="http://scribe/api/v1", **kwargs)
+    client = ScribeClient("tok", base_url="https://scribe/api/v1", **kwargs)
     adapter = FakeScribe(routes)
-    client._session.mount("http://", adapter)
+    client._session.mount("https://", adapter)
     return client, adapter
 
 
@@ -84,9 +84,9 @@ def test_401_refreshes_token_once():
     def handler(n):
         return (401, {}) if n == 1 else (200, {"result": {}})
 
-    client = ScribeClient(lambda: next(tokens), base_url="http://scribe/api/v1")
+    client = ScribeClient(lambda: next(tokens), base_url="https://scribe/api/v1")
     fake = FakeScribe({("GET", "/me"): handler})
-    client._session.mount("http://", fake)
+    client._session.mount("https://", fake)
     client.me()
     seen = [c[3]["Authorization"] for c in fake.calls]
     assert seen == ["Bearer old", "Bearer new"]
@@ -108,9 +108,9 @@ def _counting_source(lifetime):
 
 def test_valid_token_is_fetched_once_and_reused():
     source, fetched = _counting_source(3600)
-    client = ScribeClient(source, base_url="http://scribe/api/v1")
+    client = ScribeClient(source, base_url="https://scribe/api/v1")
     client._session.mount(
-        "http://", FakeScribe({("GET", "/me"): (200, {"result": {}})})
+        "https://", FakeScribe({("GET", "/me"): (200, {"result": {}})})
     )
     client.me()
     client.me()
@@ -124,9 +124,9 @@ def test_expired_token_is_refetched(monkeypatch):
     source, fetched = _counting_source(0)
     # Lifetime 0 on the fake clock: expired the moment it is checked.
     monkeypatch.setattr("time.monotonic", lambda: now[0])
-    client = ScribeClient(source, base_url="http://scribe/api/v1")
+    client = ScribeClient(source, base_url="https://scribe/api/v1")
     fake = FakeScribe({("GET", "/me"): (200, {"result": {}})})
-    client._session.mount("http://", fake)
+    client._session.mount("https://", fake)
     client.me()
     now[0] += 1
     client.me()
@@ -138,9 +138,9 @@ def test_token_inside_leeway_counts_as_expired(monkeypatch):
     monkeypatch.setattr("scribe.auth.time.monotonic", lambda: now[0])
     monkeypatch.setattr("time.monotonic", lambda: now[0])
     source, fetched = _counting_source(ScribeClient.TOKEN_LEEWAY - 1)
-    client = ScribeClient(source, base_url="http://scribe/api/v1")
+    client = ScribeClient(source, base_url="https://scribe/api/v1")
     client._session.mount(
-        "http://", FakeScribe({("GET", "/me"): (200, {"result": {}})})
+        "https://", FakeScribe({("GET", "/me"): (200, {"result": {}})})
     )
     client.me()
     client.me()
@@ -149,9 +149,9 @@ def test_token_inside_leeway_counts_as_expired(monkeypatch):
 
 def test_401_on_unexpired_token_is_not_retried():
     source, fetched = _counting_source(3600)
-    client = ScribeClient(source, base_url="http://scribe/api/v1")
+    client = ScribeClient(source, base_url="https://scribe/api/v1")
     fake = FakeScribe({("GET", "/me"): (401, {"detail": "no"})})
-    client._session.mount("http://", fake)
+    client._session.mount("https://", fake)
     with pytest.raises(AuthError):
         client.me()
     assert len(fetched) == 1
@@ -163,6 +163,15 @@ def test_static_token_is_never_refreshed():
     with pytest.raises(AuthError):
         client.me()
     assert len(fake.calls) == 1
+
+
+def test_plain_http_api_url_is_refused():
+    with pytest.raises(AuthError):
+        ScribeClient("tok", base_url="http://scribe.example/api/v1")
+
+
+def test_localhost_http_api_url_is_allowed():
+    ScribeClient("tok", base_url="http://localhost:8000/api/v1")
 
 
 def test_start_rejects_unknown_language_before_sending():
